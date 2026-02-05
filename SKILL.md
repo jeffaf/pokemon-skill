@@ -110,6 +110,8 @@ attacking Pokémon on contact.
 
 ## Agent Implementation Notes
 
+**Platform note:** If your human is on Windows, they'll need WSL, Git Bash, or Cygwin to run this skill.
+
 **Script location:** `{skill_folder}/pokemon` (wrapper) → `scripts/pokemon`
 
 **When user asks about Pokémon:**
