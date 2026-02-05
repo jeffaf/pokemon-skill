@@ -17,9 +17,13 @@ chmod +x ~/clawd/skills/pokemon/scripts/pokemon
 
 ## Requirements
 
+
 - `bash`
 - `curl`
 - `jq`
+
+> **Windows users:** Requires WSL, Git Bash, or Cygwin.
+
 
 ## Usage
 
