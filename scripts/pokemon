@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# pokemon - PokéAPI CLI for Pokémon lookups
+# Usage: pokemon <command> [args]
+
+set -euo pipefail
+
+API="https://pokeapi.co/api/v2"
+
+usage() {
+    cat <<EOF
+Usage: pokemon <command> [args]
+
+Commands:
+  search <query>    Search Pokémon by name (partial match)
+  info <name|id>    Get Pokémon details by name or Pokédex number
+  type <name>       Get type info and matchups
+  ability <name>    Get ability description
+
+Examples:
+  pokemon search pikachu
+  pokemon info 25
+  pokemon info charizard
+  pokemon type fire
+  pokemon ability static
+EOF
+    exit 1
+}
+
+fetch() {
+    curl -sf "$1" || { echo "API error: could not fetch $1" >&2; exit 1; }
+}
+
+# Format pokemon basic info: [#25] Pikachu — Electric, HP: 35, Atk: 55, Def: 40, Spd: 90
+format_pokemon() {
+    jq -r '
+        def capitalize: (.[0:1] | ascii_upcase) + .[1:];
+        def get_stat(name): [.stats[] | select(.stat.name == name)][0].base_stat // 0;
+        
+        "[\(.id | "#\(.)")] \(.name | capitalize) — " +
+        ([.types[].type.name | capitalize] | join("/")) + ", " +
+        "HP: \(get_stat("hp")), " +
+        "Atk: \(get_stat("attack")), " +
+        "Def: \(get_stat("defense")), " +
+        "Spd: \(get_stat("speed"))"
+    '
+}
+
+# Format full pokemon info
+format_pokemon_full() {
+    jq -r '
+        def capitalize: (.[0:1] | ascii_upcase) + .[1:];
+        def get_stat(name): [.stats[] | select(.stat.name == name)][0].base_stat // 0;
+        
+        "⚡ \(.name | capitalize) [#\(.id)]\n" +
+        "   Types: " + ([.types[].type.name | capitalize] | join("/")) + "\n" +
+        "   Height: \(.height / 10)m | Weight: \(.weight / 10)kg\n" +
+        "   Base Stats:\n" +
+        "     HP: \(get_stat("hp")) | Atk: \(get_stat("attack")) | Def: \(get_stat("defense"))\n" +
+        "     Sp.Atk: \(get_stat("special-attack")) | Sp.Def: \(get_stat("special-defense")) | Spd: \(get_stat("speed"))\n" +
+        "   Abilities: " + ([.abilities[].ability.name | gsub("-"; " ") | capitalize] | join(", ")) + "\n" +
+        "   Sprite: \(.sprites.front_default // "N/A")"
+    '
+}
+
+# Format type info with matchups
+format_type() {
+    jq -r '
+        def capitalize: (.[0:1] | ascii_upcase) + .[1:];
+        def format_list: if length == 0 then "None" else [.[] | .name | capitalize] | join(", ") end;
+        
+        "🔥 Type: \(.name | capitalize)\n" +
+        "\n⚔️ Offensive:\n" +
+        "   2x damage to: \(.damage_relations.double_damage_to | format_list)\n" +
+        "   ½x damage to: \(.damage_relations.half_damage_to | format_list)\n" +
+        "   0x damage to: \(.damage_relations.no_damage_to | format_list)\n" +
+        "\n🛡️ Defensive:\n" +
+        "   2x damage from: \(.damage_relations.double_damage_from | format_list)\n" +
+        "   ½x damage from: \(.damage_relations.half_damage_from | format_list)\n" +
+        "   0x damage from: \(.damage_relations.no_damage_from | format_list)\n" +
+        "\n📊 Pokémon count: \(.pokemon | length)"
+    '
+}
+
+# Format ability info
+format_ability() {
+    jq -r '
+        def capitalize: (.[0:1] | ascii_upcase) + .[1:];
+        def get_english: [.[] | select(.language.name == "en")][0].effect // "No description available.";
+        def get_short: [.[] | select(.language.name == "en")][0].short_effect // "";
+        
+        "✨ Ability: \(.name | gsub("-"; " ") | capitalize)\n" +
+        "\n📖 Effect:\n" + (.effect_entries | get_english) + "\n" +
+        "\n🎯 Short: " + (.effect_entries | get_short) + "\n" +
+        "\n📊 Pokémon with this ability: \(.pokemon | length)"
+    '
+}
+
+cmd_search() {
+    [[ -z "${1:-}" ]] && { echo "Usage: pokemon search <query>" >&2; exit 1; }
+    local query="${1,,}"  # lowercase
+    
+    # PokéAPI doesn't have search, so we fetch all and filter
+    # Using pokemon-species for better name list, limit to first 1025 (national dex)
+    fetch "$API/pokemon?limit=1025" | jq -r --arg q "$query" '
+        def capitalize: (.[0:1] | ascii_upcase) + .[1:];
+        .results[] | select(.name | contains($q)) | .name | capitalize
+    ' | head -20
+}
+
+cmd_info() {
+    [[ -z "${1:-}" ]] && { echo "Usage: pokemon info <name|id>" >&2; exit 1; }
+    local query="${1,,}"  # lowercase
+    fetch "$API/pokemon/$query" | format_pokemon_full
+}
+
+cmd_type() {
+    [[ -z "${1:-}" ]] && { echo "Usage: pokemon type <name>" >&2; exit 1; }
+    local query="${1,,}"
+    fetch "$API/type/$query" | format_type
+}
+
+cmd_ability() {
+    [[ -z "${1:-}" ]] && { echo "Usage: pokemon ability <name>" >&2; exit 1; }
+    local query="${1,,}"
+    fetch "$API/ability/$query" | format_ability
+}
+
+[[ $# -lt 1 ]] && usage
+
+case "$1" in
+    search)   shift; cmd_search "$@" ;;
+    info)     shift; cmd_info "$@" ;;
+    type)     shift; cmd_type "$@" ;;
+    ability)  shift; cmd_ability "$@" ;;
+    -h|--help|help) usage ;;
+    *) echo "Unknown command: $1" >&2; usage ;;
+esac
